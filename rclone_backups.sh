@@ -40,8 +40,20 @@
 
 # 1) Start Modpack HUB Script is called -> Pick server wanted -> Calls startserver-modpack.sh script -> In game, /stop command is sent (op 4 needed) -> startserver-modpack.sh stops running -> calls rclone_backup_modpack.sh
 
-
+# THANKS CHATGPT, STACKOVERFLOW AND THE RCLONE FORUMS FOR HELP IN THIS
+# YOU WILL NEED THE PACKAGES rclone (https://rclone.org/) AND zip (https://infozip.sourceforge.net/)
+# YOU WILL ALSO NEED TO SETUP A GDrive, MEGA AND Dropbox REMOTES. (or at least one of those.). RUN "rclone config" TO DO IT.
 ### CONFIGURATION ZONE ###
+
+# CONFIGURE THE SUBDIRECTORY EACH MODPACK BACKUP FOLDER WILL BE IN. TO MAKE THOSE, RUN "rclone mkdir REMOTE:/[subdirectory_name]/" (NOTE: REMOTE MEANS GDrive, MEGA, Dropbox.). Also run rclone mkdir REMOTE:/[subdirectory_name]/modpack_name for every modpack.
+
+subdirectory_name=backups_mc
+
+# CONFIGURE EACH REMOTE'S NAME
+
+gdrive_remote=GDrive
+dropbox_remote=Dropbox
+mega_remote=MEGA
 
 # CONFIGURE HOW MANY BACKUPS SHOULD BE KEPT FOR EACH MODPACK, IN EACH PROVIDER
 
@@ -49,33 +61,32 @@ gdrive_cutoff_number=3
 mega_cutoff_number=4
 dropbox_cutoff_number=1
 
+# CONFIGURE THE ZIP FILE COMPRESSION FACTOR (AFFECTS PROCESSING TIME FOR LARGE WORLDS). GOES FROM 0-9, 0 BEING NO COMPRESSION AND 9 BEING MAXIMUM COMPRESSION
 
-
+compression_factor=9
 
 ### CONFIGURATION ZONE ###
 
 
-
-
-
-# GET VARIABLES 
+#### PART 0 - GET VARIABLES ####
 modpack_name=$(basename "$(pwd)")
 current_date=$(date '+%Y-%m-%d')
-world_size=$(du -hs World/ | cut -f1)
+world_name= $(sed -n '18{p;q}' server.properties | cut -d'=' -f2)
+world_size=$(du -hs ${world_name} | cut -f1)
 zip_name="${modpack_name}_${current_date}_${world_size}"
 precise_date=$(date '+%H:%M:%S.%3N')
 time_zone=$(date '+%:z')
 easy_time_log="[UTC${time_zone}][${current_date}, ${precise_date}]:"
 logf="${modpack_name}_${current_date} log"
 
-#### PART 1 ####
+#### PART 1 - ZIP FILE ####
 
 # CREATE COMMENT, LOG AND ZIP FILE. LOG.
 echo "Creating ZIP File."
 touch "${logf}.txt"
 zip_comment="This zipfile was created at ${current_date}, is part of the ${modpack_name} modpack and has ${world_size}Bs. It has been shipped to Dropbox, GDrive and MEGA. In case Oracle ever deletes this server instance, this is a way to have the world files."
 echo "${zip_comment}" > zip_comment_file.txt
-zip -q -r -9 "${zip_name}" World/
+zip -q -r -${compression_factor} "${zip_name}" ${world_name}
 zip -z "${zip_name}".zip < zip_comment_file.txt
 rm zip_comment_file.txt
 
@@ -83,15 +94,15 @@ echo "Created zip file. Sending to providers."
 echo "${easy_time_log} Created zip world file. Size is "${world_size}"Bs." >> "${logf}.txt"
 
 
-#### PART 2 ####
+#### PART 2 - SEND ZIP FILE ####
 
 #SEND ZIP FILE TO REMOTES
 
-rclone sync --metadata "${zip_name}.zip" GDrive:backups_mc/"${modpack_name}"
+rclone sync --metadata "${zip_name}.zip" ${gdrive_remote}:${subdirectory_name}/"${modpack_name}"
 echo "${easy_time_log} Sent zip file to Google Drive." >> "${logf}.txt"
-rclone sync --metadata "${zip_name}.zip" Dropbox:backups_mc/"${modpack_name}"
+rclone sync --metadata "${zip_name}.zip" ${dropbox_remote}${subdirectory_name}/"${modpack_name}"
 echo "${easy_time_log} Sent zip file to Dropbox." >> "${logf}.txt"
-rclone sync --metadata "${zip_name}.zip" MEGA:backups_mc/"${modpack_name}"
+rclone sync --metadata "${zip_name}.zip" ${mega_remote}${subdirectory_name}/"${modpack_name}"
 echo "${easy_time_log} Sent zip file to MEGA." >> "${logf}.txt"
 
 echo "File has been sent to providers!"
@@ -100,19 +111,19 @@ echo "File has been sent to providers!"
 
 echo "Removing n-latest backups."
 
-gdrive_backups_delete="$(rclone lsf GDrive:backups_mc/"${modpack_name}" | sort | head -n -"${gdrive_cutoff_number}")"
-dropbox_backups_delete="$(rclone lsf Dropbox:backups_mc/"${modpack_name}" | sort | head -n -"${dropbox_cutoff_number}")"
-mega_backups_delete="$(rclone lsf MEGA:backups_mc/"${modpack_name}" | sort | head -n -"${mega_cutoff_number}")"
+gdrive_backups_delete="$(rclone lsf ${gdrive_remote}:${subdirectory_name}/"${modpack_name}" | sort | head -n -"${gdrive_cutoff_number}")"
+dropbox_backups_delete="$(rclone lsf ${dropbox_remote}${subdirectory_name}/"${modpack_name}" | sort | head -n -"${dropbox_cutoff_number}")"
+mega_backups_delete="$(rclone lsf ${mega_remote}${subdirectory_name}/"${modpack_name}" | sort | head -n -"${mega_cutoff_number}")"
 
 echo "${gdrive_backups_delete}" > gdrive_backups.txt
 echo "${dropbox_backups_delete}" > dropbox_backups.txt
 echo "${mega_backups_delete}" > mega_backups.txt
 
-rclone delete GDrive:backups_mc/"${modpack_name}" --files-from "gdrive_backups.txt"
+rclone delete ${gdrive_remote}:${subdirectory_name}/"${modpack_name}" --files-from "gdrive_backups.txt"
 echo "${easy_time_log} Deleted latest GDrive backups." >> "${logf}.txt"
-rclone delete Dropbox:backups_mc/"${modpack_name}" --files-from "dropbox_backups.txt"
+rclone delete ${dropbox_remote}${subdirectory_name}/"${modpack_name}" --files-from "dropbox_backups.txt"
 echo "${easy_time_log} Deleted latest Dropbox backups." >> "${logf}.txt"
-rclone delete MEGA:backups_mc/"${modpack_name}" --files-from "mega_backups.txt"
+rclone delete ${mega_remote}${subdirectory_name}/"${modpack_name}" --files-from "mega_backups.txt"
 echo "${easy_time_log} Deleted latest MEGA backups." >> "${logf}.txt"
 
 echo "N-latest files removed!"
@@ -133,9 +144,9 @@ echo "Remaining zip file deleted!"
 echo "${easy_time_log} Sending myself to the backup providers." >> "${logf}.txt"
 echo "${easy_time_log} Tasks over." >> "${logf}.txt"
 
-rclone sync --metadata "${logf}.txt" GDrive:backups_mc/"${modpack_name}"
-rclone sync --metadata "${logf}.txt" Dropbox:backups_mc/"${modpack_name}"
-rclone sync --metadata "${logf}.txt" MEGA:backups_mc/"${modpack_name}"
+rclone sync --metadata "${logf}.txt" ${gdrive_remote}:${subdirectory_name}/"${modpack_name}"
+rclone sync --metadata "${logf}.txt" ${dropbox_remote}${subdirectory_name}/"${modpack_name}"
+rclone sync --metadata "${logf}.txt" ${mega_remote}${subdirectory_name}/"${modpack_name}"
 
 echo "I am finished here!"
 exit 
